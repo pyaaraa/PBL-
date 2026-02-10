@@ -27,7 +27,7 @@ function App() {
       setWalletAddress(address);
 
       setStatus("Fetching nonce");
-      const res = await fetch(`http://localhost:5000/api/nonce/${address}`);
+      const res = await fetch(`http://localhost:5001/api/nonce/${address}`);
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data.error || "Failed to fetch nonce");
@@ -40,7 +40,7 @@ function App() {
       const signature = await signer.signMessage(data.nonce);
 
       setStatus("Verifying signature");
-      const verifyRes = await fetch("http://localhost:5000/api/verify", {
+      const verifyRes = await fetch("http://localhost:5001/api/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ walletAddress: address, signature, nonce: data.nonce }),
@@ -75,7 +75,7 @@ function App() {
             <p className="brand-subtitle">Decentralized Authentication</p>
           </div>
         </div>
-        <div className="status-pill">MetaMask + Postgres</div>
+        <div className="status-pill">MetaMask Ready</div>
       </header>
 
       <main className="hero">
