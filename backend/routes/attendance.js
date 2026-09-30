@@ -6,12 +6,149 @@ import NonceStore, { getNonceExpiry } from "../models/NonceStore.js";
 import { logAudit } from "../utils/audit.js";
 import { attendanceRateLimit } from "../middleware/rateLimit.js";
 import { validateRequestNonce, validateVerify } from "../middleware/validate.js";
+import { anchorAttendanceProof } from "../utils/blockchain.js";
+import {
+  getCurrentSession,
+  serializeSession,
+  sessionRequiresLocation,
+  sessionRequiresNetwork,
+} from "../utils/session.js";
 
 const router = Router();
 
+function normalizeIp(ip) {
+  if (!ip) return "";
+  return ip.replace("::ffff:", "");
+}
 
-function buildMessageToSign(sessionId, timeISO) {
-  return `I confirm my attendance for Session ID ${sessionId} at ${timeISO}`;
+function buildMessageToSign(session, timeISO) {
+  return `I confirm my attendance for ${session.subject} (${session.sessionId}) in ${session.roomLabel} at ${timeISO}`;
+}
+
+function toRadians(value) {
+  return (value * Math.PI) / 180;
+}
+
+function distanceMeters(aLat, aLng, bLat, bLng) {
+  const earthRadius = 6371000;
+  const dLat = toRadians(bLat - aLat);
+  const dLng = toRadians(bLng - aLng);
+  const lat1 = toRadians(aLat);
+  const lat2 = toRadians(bLat);
+
+  const haversine =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+
+  return 2 * earthRadius * Math.asin(Math.sqrt(haversine));
+}
+
+function ipv4ToLong(ip) {
+  const parts = ip.split(".");
+  if (parts.length !== 4) return null;
+  const nums = parts.map((part) => Number(part));
+  if (nums.some((value) => !Number.isInteger(value) || value < 0 || value > 255)) {
+    return null;
+  }
+  return nums.reduce((acc, part) => ((acc << 8) >>> 0) + part, 0);
+}
+
+function ipMatchesRule(ip, rule) {
+  if (!rule) return false;
+  const trimmedRule = rule.trim();
+  if (!trimmedRule) return false;
+
+  if (trimmedRule.includes("/")) {
+    const [baseIp, prefixText] = trimmedRule.split("/");
+    const ipLong = ipv4ToLong(ip);
+    const baseLong = ipv4ToLong(baseIp);
+    const prefix = Number(prefixText);
+    if (ipLong === null || baseLong === null || !Number.isInteger(prefix) || prefix < 0 || prefix > 32) {
+      return false;
+    }
+    const mask = prefix === 0 ? 0 : ((0xffffffff << (32 - prefix)) >>> 0);
+    return (ipLong & mask) === (baseLong & mask);
+  }
+
+  if (trimmedRule.endsWith("*")) {
+    return ip.startsWith(trimmedRule.slice(0, -1));
+  }
+
+  return ip === trimmedRule || ip.startsWith(trimmedRule);
+}
+
+function validateLocationForSession(session, location) {
+  if (!sessionRequiresLocation(session)) {
+    return { ok: true, location: null };
+  }
+
+  if (!location) {
+    return { ok: false, reason: "location_required", error: "Location is required for this attendance session." };
+  }
+
+  if (session.geoLatitude === null || session.geoLongitude === null) {
+    return { ok: false, reason: "session_location_not_configured", error: "Session location is not configured yet." };
+  }
+
+  const distance = distanceMeters(
+    Number(location.latitude),
+    Number(location.longitude),
+    Number(session.geoLatitude),
+    Number(session.geoLongitude)
+  );
+  const allowedRadius = Number(session.geoRadiusMeters || 75) + Number(location.accuracyMeters || 0);
+
+  if (distance > allowedRadius) {
+    return {
+      ok: false,
+      reason: "outside_location_radius",
+      error: "Outside the permitted classroom radius for this session.",
+      location: { ...location, distanceMeters: Math.round(distance) },
+    };
+  }
+
+  return {
+    ok: true,
+    location: { ...location, distanceMeters: Math.round(distance) },
+  };
+}
+
+function validateNetworkForSession(session, req) {
+  if (!sessionRequiresNetwork(session)) {
+    return { ok: true };
+  }
+
+  const normalizedIp = normalizeIp(req.ip);
+  const rules = session.allowedIpPrefixes || [];
+  if (rules.length === 0) {
+    return { ok: false, reason: "network_not_configured", error: "Campus network validation is not configured yet." };
+  }
+
+  const matched = rules.some((rule) => ipMatchesRule(normalizedIp, rule));
+  if (!matched) {
+    return {
+      ok: false,
+      reason: "outside_campus_network",
+      error: "You are not connected to an approved campus network for this session.",
+      meta: { ip: normalizedIp },
+    };
+  }
+
+  return { ok: true, meta: { ip: normalizedIp } };
+}
+
+function buildProofHash(record) {
+  return ethers.keccak256(
+    ethers.toUtf8Bytes(
+      JSON.stringify({
+        sessionId: record.sessionId,
+        registrationNumber: record.registrationNumber,
+        walletAddress: record.walletAddress,
+        timestamp: record.timestamp,
+        subject: record.subject,
+      })
+    )
+  );
 }
 
 
@@ -21,8 +158,9 @@ router.post(
   validateRequestNonce,
   async (req, res) => {
     try {
-      const { registrationNumber, campus, branch, section, walletAddress } = req.body;
-      const session = await SessionMetadata.findOne({ active: true }).sort({ createdAt: -1 });
+      const { registrationNumber, campus, branch, section, walletAddress, location } = req.body;
+      const sessionDoc = await getCurrentSession();
+      const session = sessionDoc ? serializeSession(sessionDoc) : null;
       if (!session) {
         await logAudit({
           action: "request_nonce",
@@ -35,26 +173,56 @@ router.post(
         return res.status(400).json({ error: "No active attendance session. Try again later." });
       }
 
-      if (new Date() > session.expiryTime) {
-        await session.updateOne({ active: false });
+      if (campus !== session.campus || branch !== session.branch || section !== session.section) {
         await logAudit({
           action: "request_nonce",
           registrationNumber,
           walletAddress: walletAddress?.toLowerCase(),
           success: false,
-          reason: "session_expired",
+          reason: "class_mismatch",
+          sessionId: session.sessionId,
+          ip: req.ip,
+          meta: { campus, branch, section },
+        });
+        return res.status(400).json({
+          error: `This live session is for ${session.branch} ${session.section} at ${session.campus}.`,
+        });
+      }
+
+      const now = Date.now();
+      const sessionEnd = new Date(session.expiryTime).getTime();
+      const sessionStart = new Date(session.startTime).getTime();
+      const allowedEnd = Math.min(
+        sessionEnd,
+        sessionStart + Number(session.attendanceWindowMinutes || 10) * 60 * 1000
+      );
+
+      if (now > allowedEnd) {
+        await logAudit({
+          action: "request_nonce",
+          registrationNumber,
+          walletAddress: walletAddress?.toLowerCase(),
+          success: false,
+          reason: "attendance_window_closed",
           sessionId: session.sessionId,
           ip: req.ip,
         });
-        return res.status(400).json({ error: "Attendance session has ended." });
+        return res.status(400).json({ error: "Attendance window has closed for this session." });
       }
 
       const checksumAddress = ethers.getAddress(walletAddress);
       const walletLower = checksumAddress.toLowerCase();
-      const existingByWallet = await AttendanceRecord.findOne({
-        sessionId: session._id,
-        walletAddress: walletLower,
-      });
+      const [existingByWallet, existingByReg] = await Promise.all([
+        AttendanceRecord.findOne({
+          sessionId: session._id,
+          walletAddress: walletLower,
+        }),
+        AttendanceRecord.findOne({
+          sessionId: session._id,
+          registrationNumber: registrationNumber.toUpperCase(),
+        }),
+      ]);
+
       if (existingByWallet) {
         await logAudit({
           action: "request_nonce",
@@ -69,10 +237,6 @@ router.post(
           error: "This wallet has already marked attendance for this session.",
         });
       }
-      const existingByReg = await AttendanceRecord.findOne({
-        sessionId: session._id,
-        registrationNumber: registrationNumber.toUpperCase(),
-      });
       if (existingByReg) {
         await logAudit({
           action: "request_nonce",
@@ -88,9 +252,39 @@ router.post(
         });
       }
 
+      const locationValidation = validateLocationForSession(session, location);
+      if (!locationValidation.ok) {
+        await logAudit({
+          action: "request_nonce",
+          registrationNumber: registrationNumber.toUpperCase(),
+          walletAddress: walletLower,
+          sessionId: session.sessionId,
+          success: false,
+          reason: locationValidation.reason,
+          ip: req.ip,
+          meta: locationValidation.location || null,
+        });
+        return res.status(400).json({ error: locationValidation.error });
+      }
+
+      const networkValidation = validateNetworkForSession(session, req);
+      if (!networkValidation.ok) {
+        await logAudit({
+          action: "request_nonce",
+          registrationNumber: registrationNumber.toUpperCase(),
+          walletAddress: walletLower,
+          sessionId: session.sessionId,
+          success: false,
+          reason: networkValidation.reason,
+          ip: req.ip,
+          meta: networkValidation.meta || null,
+        });
+        return res.status(400).json({ error: networkValidation.error });
+      }
+
       const nonce = ethers.hexlify(ethers.randomBytes(32));
       const timeISO = new Date().toISOString();
-      const messageToSign = buildMessageToSign(session.sessionId, timeISO);
+      const messageToSign = buildMessageToSign(session, timeISO);
       const expiresAt = getNonceExpiry();
 
       await NonceStore.create({
@@ -101,7 +295,11 @@ router.post(
         campus,
         branch,
         section,
+        subject: session.subject,
+        teacherName: session.teacherName,
+        validationMode: session.validationMode,
         messageToSign,
+        location: locationValidation.location,
         expiresAt,
       });
 
@@ -112,12 +310,16 @@ router.post(
         sessionId: session.sessionId,
         success: true,
         ip: req.ip,
+        meta: {
+          requiresLocation: session.requiresLocation,
+          requiresNetwork: session.requiresNetwork,
+        },
       });
 
       res.json({
         nonce,
         messageToSign,
-        sessionId: session.sessionId,
+        session,
         expiresAt: expiresAt.toISOString(),
       });
     } catch (err) {
@@ -133,7 +335,7 @@ router.post(
 
 router.post("/verify", attendanceRateLimit, validateVerify, async (req, res) => {
   try {
-    const { nonce, signature, walletAddress, registrationNumber } = req.body;
+    const { nonce, signature, walletAddress, registrationNumber, location } = req.body;
     const walletLower = ethers.getAddress(walletAddress).toLowerCase();
     const regUpper = registrationNumber.trim().toUpperCase();
 
@@ -202,7 +404,8 @@ router.post("/verify", attendanceRateLimit, validateVerify, async (req, res) => 
     }
 
     const session = await SessionMetadata.findOne({ sessionId: stored.sessionId });
-    if (!session || !session.active || new Date() > session.expiryTime) {
+    const currentSession = session ? serializeSession(session) : null;
+    if (!currentSession || !currentSession.active || new Date() > new Date(currentSession.expiryTime)) {
       await logAudit({
         action: "verify",
         registrationNumber: regUpper,
@@ -214,6 +417,37 @@ router.post("/verify", attendanceRateLimit, validateVerify, async (req, res) => 
       });
       return res.status(400).json({ error: "Attendance session has ended." });
     }
+
+    const locationValidation = validateLocationForSession(currentSession, location || stored.location);
+    if (!locationValidation.ok) {
+      await logAudit({
+        action: "verify",
+        registrationNumber: regUpper,
+        walletAddress: walletLower,
+        sessionId: stored.sessionId,
+        success: false,
+        reason: locationValidation.reason,
+        ip: req.ip,
+        meta: locationValidation.location || null,
+      });
+      return res.status(400).json({ error: locationValidation.error });
+    }
+
+    const networkValidation = validateNetworkForSession(currentSession, req);
+    if (!networkValidation.ok) {
+      await logAudit({
+        action: "verify",
+        registrationNumber: regUpper,
+        walletAddress: walletLower,
+        sessionId: stored.sessionId,
+        success: false,
+        reason: networkValidation.reason,
+        ip: req.ip,
+        meta: networkValidation.meta || null,
+      });
+      return res.status(400).json({ error: networkValidation.error });
+    }
+
     const existingWallet = await AttendanceRecord.findOne({
       sessionId: session._id,
       walletAddress: walletLower,
@@ -250,7 +484,7 @@ router.post("/verify", attendanceRateLimit, validateVerify, async (req, res) => 
       return res.status(400).json({ error: "This registration number has already been used for this session." });
     }
 
-    await AttendanceRecord.create({
+    const attendanceRecord = await AttendanceRecord.create({
       registrationNumber: regUpper,
       campus: stored.campus,
       branch: stored.branch,
@@ -258,7 +492,47 @@ router.post("/verify", attendanceRateLimit, validateVerify, async (req, res) => 
       walletAddress: walletLower,
       sessionId: session._id,
       status: "present",
+      subject: stored.subject || currentSession.subject,
+      teacherName: stored.teacherName || currentSession.teacherName,
+      validationMode: stored.validationMode || currentSession.validationMode,
+      location: locationValidation.location,
     });
+    attendanceRecord.proofHash = buildProofHash({
+      sessionId: currentSession.sessionId,
+      registrationNumber: regUpper,
+      walletAddress: walletLower,
+      timestamp: attendanceRecord.timestamp.toISOString(),
+      subject: attendanceRecord.subject,
+    });
+    await attendanceRecord.save();
+
+    let blockchainResult = {
+      status: "pending",
+      anchored: false,
+      chainId: null,
+      txHash: null,
+      reason: null,
+    };
+    try {
+      blockchainResult = await anchorAttendanceProof(attendanceRecord, currentSession);
+      attendanceRecord.blockchain.anchorStatus = blockchainResult.status;
+      attendanceRecord.blockchain.anchorTxHash = blockchainResult.txHash || null;
+      attendanceRecord.blockchain.anchorChainId = blockchainResult.chainId || null;
+      attendanceRecord.blockchain.anchoredAt = blockchainResult.anchored ? new Date() : null;
+      attendanceRecord.blockchain.lastError = blockchainResult.reason || null;
+      await attendanceRecord.save();
+    } catch (anchorError) {
+      attendanceRecord.blockchain.anchorStatus = "failed";
+      attendanceRecord.blockchain.lastError = anchorError.message;
+      await attendanceRecord.save();
+      blockchainResult = {
+        status: "failed",
+        anchored: false,
+        chainId: null,
+        txHash: null,
+        reason: anchorError.message,
+      };
+    }
 
     await NonceStore.deleteOne({ nonce });
 
@@ -274,6 +548,14 @@ router.post("/verify", attendanceRateLimit, validateVerify, async (req, res) => 
     res.json({
       success: true,
       message: "Attendance marked successfully",
+      proofHash: attendanceRecord.proofHash,
+      session: currentSession,
+      blockchain: {
+        anchorStatus: blockchainResult.status,
+        anchorTxHash: blockchainResult.txHash,
+        anchorChainId: blockchainResult.chainId,
+        anchorReason: blockchainResult.reason || null,
+      },
     });
   } catch (err) {
     console.error("verify error:", err);

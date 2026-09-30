@@ -12,7 +12,16 @@ const nonceStoreSchema = new mongoose.Schema(
     campus: { type: String, required: true },
     branch: { type: String, required: true },
     section: { type: String, required: true },
+    subject: { type: String, default: "General" },
+    teacherName: { type: String, default: "Faculty" },
+    validationMode: { type: String, default: "wallet" },
     messageToSign: { type: String, required: true },
+    location: {
+      latitude: { type: Number, default: null },
+      longitude: { type: Number, default: null },
+      accuracyMeters: { type: Number, default: null },
+      distanceMeters: { type: Number, default: null },
+    },
     expiresAt: { type: Date, required: true },
   },
   { timestamps: true }

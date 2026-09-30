@@ -18,5 +18,8 @@
   "description": "",
   "keywords": [],
   "author": "",
-  "license": "ISC"
+  "license": "ISC",
+  "devDependencies": {
+    "mongodb-memory-server": "^11.2.0"
+  }
 }

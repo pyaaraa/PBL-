@@ -1,6 +1,7 @@
-import { BrowserRouter, Routes, Route, Link } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Link, NavLink } from "react-router-dom";
 import AttendancePage from "./pages/AttendancePage";
 import AdminPage from "./pages/AdminPage";
+import StudentDashboard from "./pages/StudentDashboard";
 import "./App.css";
 
 function App() {
@@ -18,20 +19,22 @@ function App() {
             </div>
           </Link>
           <nav className="nav">
-            <Link to="/" className="nav-link">Mark Attendance</Link>
-            <Link to="/admin" className="nav-link">Admin</Link>
+            <NavLink to="/" end className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>Mark Attendance</NavLink>
+            <NavLink to="/dashboard" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>Dashboard</NavLink>
+            <NavLink to="/admin" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>Admin</NavLink>
           </nav>
         </header>
 
         <main className="main-content">
           <Routes>
             <Route path="/" element={<AttendancePage />} />
+            <Route path="/dashboard" element={<StudentDashboard />} />
             <Route path="/admin" element={<AdminPage />} />
           </Routes>
         </main>
 
         <footer className="footer">
-          Secure attendance powered by MetaMask. No private keys stored.
+          Secure attendance powered by MetaMask with live sessions, proof hashes, and student analytics.
         </footer>
       </div>
     </BrowserRouter>

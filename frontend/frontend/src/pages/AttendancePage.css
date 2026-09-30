@@ -1,6 +1,6 @@
 .attendance-page {
-  padding: 2rem 1rem;
-  max-width: 480px;
+  padding: 1rem;
+  max-width: 720px;
   margin: 0 auto;
 }
 
@@ -11,6 +11,7 @@
   padding: 2rem;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
   backdrop-filter: blur(12px);
+  animation: rise 360ms ease-out;
 }
 
 .attendance-title {
@@ -27,14 +28,95 @@
   line-height: 1.5;
 }
 
-.attendance-form {
+.session-banner {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 1rem;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 0.92rem;
+}
+
+.session-banner.live {
+  border-color: rgba(42, 211, 143, 0.35);
+  background: rgba(42, 211, 143, 0.09);
+}
+
+.session-banner.idle {
+  border-color: rgba(249, 186, 132, 0.25);
+  background: rgba(249, 186, 132, 0.08);
+}
+
+.session-live {
+  color: #96f3c9;
+  font-weight: 600;
+}
+
+.session-detail {
+  color: var(--ink-70);
+}
+
+.session-expiry {
+  color: var(--ink-60);
+}
+
+.session-idle {
+  color: #f9ba84;
+}
+
+.validation-badges {
   display: flex;
-  flex-direction: column;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.validation-badge {
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--ink-80);
+  font-size: 0.78rem;
+}
+
+.profile-card {
+  margin-bottom: 1rem;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  margin-bottom: 1rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.profile-card h2 {
+  margin: 0 0 0.35rem;
+}
+
+.profile-card p {
+  margin: 0;
+  color: var(--ink-60);
+}
+
+.profile-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.attendance-form {
+  display: grid;
   gap: 1rem;
 }
 
 .field-label {
-  font-size: 0.875rem;
+  font-size: 1rem;
   font-weight: 600;
   color: var(--ink-80);
 }
@@ -42,12 +124,12 @@
 .field-select,
 .field-input {
   width: 100%;
-  padding: 12px 14px;
+  padding: 14px 16px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.15);
   background: rgba(0, 0, 0, 0.25);
   color: var(--ink-100);
-  font-size: 1rem;
+  font-size: 1.05rem;
   font-family: inherit;
 }
 
@@ -59,7 +141,7 @@
 }
 
 .field-error {
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   color: #f87171;
   margin-top: -0.5rem;
 }
@@ -71,20 +153,30 @@
   flex-wrap: wrap;
 }
 
+.wallet-row.compact {
+  margin-top: -0.25rem;
+}
+
 .wallet-badge {
-  font-size: 0.9rem;
+  font-size: 1rem;
   font-family: "JetBrains Mono", monospace;
   color: var(--ink-70);
-  padding: 6px 12px;
+  padding: 8px 14px;
   background: rgba(42, 211, 143, 0.15);
   border-radius: 8px;
   border: 1px solid rgba(42, 211, 143, 0.3);
 }
 
+.wallet-badge.location,
+.wallet-badge.network,
+.wallet-badge.auth {
+  font-family: inherit;
+}
+
 .btn {
-  padding: 14px 24px;
+  padding: 16px 26px;
   border-radius: 12px;
-  font-size: 1rem;
+  font-size: 1.1rem;
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
@@ -132,8 +224,60 @@
   color: #7df2c0;
 }
 
+.message.info {
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(96, 165, 250, 0.4);
+  color: #bfdbfe;
+}
+
 .message.error {
   background: rgba(248, 113, 113, 0.15);
   border: 1px solid rgba(248, 113, 113, 0.4);
   color: #fca5a5;
+}
+
+.proof-card {
+  margin-top: 1rem;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(42, 211, 143, 0.08);
+  border: 1px solid rgba(42, 211, 143, 0.3);
+  display: grid;
+  gap: 8px;
+}
+
+.proof-card code {
+  font-size: 0.82rem;
+  word-break: break-all;
+}
+
+.proof-badge {
+  width: fit-content;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(42, 211, 143, 0.16);
+  color: #86efac;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+@media (max-width: 640px) {
+  .profile-actions {
+    width: 100%;
+  }
+
+  .profile-actions .btn {
+    flex: 1;
+  }
+}
+
+@keyframes rise {
+  from {
+    transform: translateY(8px);
+    opacity: 0.7;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }

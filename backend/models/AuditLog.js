@@ -9,6 +9,7 @@ const auditLogSchema = new mongoose.Schema(
     success: { type: Boolean, required: true },
     reason: { type: String, default: null },
     ip: { type: String, default: null },
+    meta: { type: mongoose.Schema.Types.Mixed, default: null },
     timestamp: { type: Date, default: Date.now },
   },
   { timestamps: true }
