@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, useMemo } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
 import { apiFetch, certificatePdfUrl } from "../api";
+import { usePublicAppOrigin, verificationUrl } from "../hooks/usePublicAppOrigin";
 
 export default function VerificationPage() {
   const { query } = useParams();
@@ -12,10 +13,11 @@ export default function VerificationPage() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const publicAppOrigin = usePublicAppOrigin();
 
-  const verificationUrl = useMemo(
-    () => `${window.location.origin}/verify/${inputVal || ""}`,
-    [inputVal]
+  const shareVerificationUrl = useMemo(
+    () => verificationUrl(publicAppOrigin, inputVal),
+    [publicAppOrigin, inputVal]
   );
   const isVerified = result?.type === "certificate"
     ? Boolean(result.certificate?.verification?.ownsCertificate && result.certificate?.verification?.isValid)
@@ -229,7 +231,7 @@ export default function VerificationPage() {
               <div className="bg-black/30 border border-white/10 rounded-xl p-6 text-center space-y-3 flex flex-col items-center justify-center">
                 <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">Shareable QR Verification</span>
                 <div className="bg-white p-3 rounded-xl inline-block shadow-lg">
-                  <QRCodeSVG value={verificationUrl} size={150} level="H" includeMargin={true} />
+                  <QRCodeSVG value={shareVerificationUrl} size={150} level="H" includeMargin={true} />
                 </div>
                 <p className="text-[11px] text-gray-400">Scan to verify credentials directly on mobile devices.</p>
               </div>

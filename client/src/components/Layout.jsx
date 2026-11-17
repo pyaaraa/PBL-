@@ -4,8 +4,9 @@ import { useAuth } from "../state/AuthContext";
 export default function Layout({ children }) {
   const { user, logout, isAuthenticated } = useAuth();
   const isAdmin = user?.role === "admin";
+  const isTeacher = user?.role === "teacher";
+  const isStaff = isAdmin || isTeacher;
   const isStudent = user?.role === "student" || !user?.role;
-  const isRecruiter = user?.role === "recruiter";
 
   return (
     <div className="app-shell min-h-screen bg-[#0b0d10] text-[#f2f4f8] font-sans relative overflow-x-hidden">
@@ -24,7 +25,7 @@ export default function Layout({ children }) {
         </Link>
 
         <nav className="nav-links flex items-center gap-2 flex-wrap text-sm font-medium">
-          {isAuthenticated && (
+          {isAuthenticated && isStudent && (
             <NavLink
               to="/dashboard"
               className={({ isActive }) =>
@@ -37,7 +38,7 @@ export default function Layout({ children }) {
             </NavLink>
           )}
 
-          {isAuthenticated && (
+          {isAuthenticated && isStudent && (
             <NavLink
               to="/attendance"
               className={({ isActive }) =>
@@ -50,16 +51,16 @@ export default function Layout({ children }) {
             </NavLink>
           )}
 
-          {isAuthenticated && isAdmin && (
+          {isAuthenticated && isStaff && (
             <NavLink
-              to="/admin/certificates"
+              to={isAdmin ? "/admin" : "/teacher"}
               className={({ isActive }) =>
                 `px-3.5 py-2 rounded-lg transition-all ${
                   isActive ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40" : "text-gray-300 hover:text-white hover:bg-white/5"
                 }`
               }
             >
-              Admin Portal
+              {isAdmin ? "University Admin" : "Teacher Portal"}
             </NavLink>
           )}
 

@@ -4,12 +4,13 @@ import { apiFetch, authHeaders } from "../api";
 import LoginCard from "../components/LoginCard";
 import { useFetch } from "../hooks/useFetch";
 import { useAuth } from "../state/AuthContext";
+import { SUBJECTS, subjectForTitle } from "../subjects";
 
 export default function AttendancePage() {
   const { user, token, isAuthenticated } = useAuth();
   const [sessionForm, setSessionForm] = useState({
-    title: "DBMS Attendance",
-    courseCode: "DBMS-101",
+    title: SUBJECTS[0].title,
+    courseCode: SUBJECTS[0].code,
     description: "Beta classroom attendance session",
     startTime: new Date(Date.now() - 5 * 60 * 1000).toISOString().slice(0, 16),
     endTime: new Date(Date.now() + 55 * 60 * 1000).toISOString().slice(0, 16),
@@ -106,17 +107,22 @@ export default function AttendancePage() {
           </div>
           <form className="form-grid two-columns" onSubmit={handleCreateSession}>
             <label>
-              <span>Session Title</span>
-              <input
+              <span>Subject</span>
+              <select
                 value={sessionForm.title}
-                onChange={(e) => setSessionForm({ ...sessionForm, title: e.target.value })}
-              />
+                onChange={(e) => {
+                  const subject = subjectForTitle(e.target.value);
+                  setSessionForm({ ...sessionForm, title: e.target.value, courseCode: subject?.code || "" });
+                }}
+              >
+                {SUBJECTS.map((subject) => <option key={subject.code} value={subject.title}>{subject.title}</option>)}
+              </select>
             </label>
             <label>
               <span>Course Code</span>
               <input
                 value={sessionForm.courseCode}
-                onChange={(e) => setSessionForm({ ...sessionForm, courseCode: e.target.value })}
+                readOnly
               />
             </label>
             <label className="full-width">

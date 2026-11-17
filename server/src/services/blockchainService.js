@@ -80,6 +80,14 @@ export async function revokeCertificateOnChain({ tokenId, reason }) {
   return { txHash: tx.hash, chainId: await getChainId() };
 }
 
+export async function getCertificateOnChainById(certificateId) {
+  const { certificateContract } = getBlockchainContext();
+  const tokenId = await certificateContract.tokenIdForCertificateId(certificateId);
+  if (tokenId === 0n) return null;
+  const [walletAddress, degreeName, universityName, issueDate, metadataUri, isValid] = await certificateContract.getCertificate(tokenId);
+  return { tokenId: tokenId.toString(), walletAddress: walletAddress.toLowerCase(), degreeName, universityName, issueDate: new Date(Number(issueDate) * 1000), metadataUri, isValid };
+}
+
 export async function mintSkillOnChain({ walletAddress, metadataUri, title, description, proofUri }) {
   const { skillContract } = getBlockchainContext();
   const tx = await skillContract.mintSkill(walletAddress, metadataUri, title, description, proofUri, await issuerTransactionOverrides());

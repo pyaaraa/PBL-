@@ -1,13 +1,24 @@
 import { useCallback, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { apiFetch, certificatePdfUrl } from "../api";
 import { useFetch } from "../hooks/useFetch";
 import { useAuth } from "../state/AuthContext";
 import QRCodeModal from "../components/QRCodeModal";
+import { usePublicAppOrigin, verificationUrl } from "../hooks/usePublicAppOrigin";
 
 export default function DashboardPage() {
   const { user } = useAuth();
+
+  if (user?.role === "admin") return <Navigate to="/admin" replace />;
+  if (user?.role === "teacher") return <Navigate to="/teacher" replace />;
+  if (user?.role === "recruiter") return <Navigate to="/recruiter/search" replace />;
+
+  return <StudentDashboard user={user} />;
+}
+
+function StudentDashboard({ user }) {
   const walletAddress = user?.walletAddress;
+  const publicAppOrigin = usePublicAppOrigin();
   const [qrModal, setQrModal] = useState({ isOpen: false, title: "", url: "" });
 
   const fetchProfile = useCallback(
@@ -21,7 +32,7 @@ export default function DashboardPage() {
   const isAdmin = user?.role === "admin";
   const isRecruiter = user?.role === "recruiter";
 
-  const publicVerifyUrl = walletAddress ? `${window.location.origin}/verify/${walletAddress}` : `${window.location.origin}/verify`;
+  const publicVerifyUrl = verificationUrl(publicAppOrigin, walletAddress);
 
   return (
     <div className="space-y-8 animate-in fade-in duration-300">

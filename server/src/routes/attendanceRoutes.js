@@ -7,6 +7,7 @@ import User from "../models/User.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { buildAttendanceHash, recordAttendanceOnChain } from "../services/blockchainService.js";
 import { generateNonce } from "../utils/auth.js";
+import { SUBJECTS, findSubject } from "../utils/subjects.js";
 
 const router = Router();
 
@@ -24,9 +25,15 @@ function serializeSession(session) {
 
 router.post("/sessions", requireAuth, requireRole("teacher", "admin"), async (req, res) => {
   try {
+    const subject = findSubject(req.body?.title, req.body?.courseCode);
+    if (!subject) {
+      return res.status(400).json({
+        error: `Subject must be one of: ${SUBJECTS.map((item) => item.title).join(", ")}`,
+      });
+    }
     const session = await AttendanceSession.create({
-      title: req.body?.title || "Computer Science Lecture",
-      courseCode: req.body?.courseCode || "CS101",
+      title: subject.title,
+      courseCode: subject.code,
       description: req.body?.description || "",
       createdBy: req.user.id,
       startTime: req.body?.startTime || new Date(),
@@ -41,12 +48,52 @@ router.post("/sessions", requireAuth, requireRole("teacher", "admin"), async (re
   }
 });
 
-router.get("/sessions/all", requireAuth, requireRole("admin", "teacher"), async (_req, res) => {
+router.get("/sessions/all", requireAuth, requireRole("admin", "teacher"), async (req, res) => {
   try {
-    const sessions = await AttendanceSession.find().sort({ createdAt: -1 }).lean();
+    const filter = req.user.role === "teacher" ? { createdBy: req.user.id } : {};
+    const sessions = await AttendanceSession.find(filter).sort({ createdAt: -1 }).lean();
     res.json({ sessions: sessions.map(serializeSession) });
   } catch (error) {
     res.status(400).json({ error: error.message || "Failed to fetch all sessions" });
+  }
+});
+
+router.get("/sessions/:sessionId/attendance", requireAuth, requireRole("admin", "teacher"), async (req, res) => {
+  try {
+    const session = await AttendanceSession.findById(req.params.sessionId).lean();
+    if (!session) return res.status(404).json({ error: "Attendance session not found" });
+
+    if (req.user.role === "teacher" && String(session.createdBy) !== req.user.id) {
+      return res.status(403).json({ error: "You can view attendance only for sessions you created" });
+    }
+
+    const records = await AttendanceRecord.find({ sessionId: session._id, status: "present" })
+      .sort({ markedAt: 1 })
+      .lean();
+    const wallets = records.map((record) => record.walletAddress);
+    const students = await User.find({ walletAddress: { $in: wallets } })
+      .select("walletAddress name rollNumber branch semester")
+      .lean();
+    const studentsByWallet = new Map(students.map((student) => [student.walletAddress, student]));
+
+    res.json({
+      session: serializeSession(session),
+      attendees: records.map((record) => {
+        const student = studentsByWallet.get(record.walletAddress);
+        return {
+          id: record._id,
+          walletAddress: record.walletAddress,
+          markedAt: record.markedAt,
+          chainTxHash: record.chainTxHash,
+          name: student?.name || "Student",
+          rollNumber: student?.rollNumber || "",
+          branch: student?.branch || "",
+          semester: student?.semester || "",
+        };
+      }),
+    });
+  } catch (error) {
+    res.status(400).json({ error: error.message || "Failed to fetch session attendance" });
   }
 });
 

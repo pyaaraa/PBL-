@@ -3,9 +3,13 @@ import { apiFetch } from "../api";
 import { useFetch } from "../hooks/useFetch";
 import { useAuth } from "../state/AuthContext";
 import QRCodeModal from "../components/QRCodeModal";
+import { SUBJECTS, subjectForTitle } from "../subjects";
+import { usePublicAppOrigin, verificationUrl } from "../hooks/usePublicAppOrigin";
 
 export default function AdminDashboardPage() {
-  const { authHeaders } = useAuth();
+  const { authHeaders, user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const publicAppOrigin = usePublicAppOrigin();
   const [activeTab, setActiveTab] = useState("roster");
 
   // Roster state
@@ -36,11 +40,12 @@ export default function AdminDashboardPage() {
   const [skillResult, setSkillResult] = useState(null);
 
   // Session state
-  const [sessionTitle, setSessionTitle] = useState("CS402 Web3 Cryptography");
-  const [courseCode, setCourseCode] = useState("CS402");
+  const [sessionTitle, setSessionTitle] = useState(SUBJECTS[0].title);
+  const [courseCode, setCourseCode] = useState(SUBJECTS[0].code);
   const [sessionDesc, setSessionDesc] = useState("Live attendance session");
   const [creatingSession, setCreatingSession] = useState(false);
   const [sessionResult, setSessionResult] = useState(null);
+  const [selectedSessionId, setSelectedSessionId] = useState("");
 
   // QR Modal state
   const [qrModal, setQrModal] = useState({ isOpen: false, title: "", url: "" });
@@ -52,6 +57,19 @@ export default function AdminDashboardPage() {
   const { data: studentsData, run: refetchStudents } = useFetch(fetchStudents, []);
   const fetchCredentials = useCallback(() => apiFetch("/admin/credentials", { headers: authHeaders }), [authHeaders]);
   const { data: credentialsData, run: refetchCredentials } = useFetch(fetchCredentials, []);
+  const fetchSessions = useCallback(() => apiFetch("/sessions/all", { headers: authHeaders }), [authHeaders]);
+  const { data: sessionsData, loading: sessionsLoading, run: refetchSessions } = useFetch(fetchSessions, []);
+  const fetchSessionAttendance = useCallback(
+    () => (selectedSessionId
+      ? apiFetch(`/sessions/${selectedSessionId}/attendance`, { headers: authHeaders })
+      : Promise.resolve({ attendees: [] })),
+    [authHeaders, selectedSessionId]
+  );
+  const {
+    data: sessionAttendanceData,
+    loading: attendanceLoading,
+    run: refetchSessionAttendance,
+  } = useFetch(fetchSessionAttendance, [selectedSessionId]);
 
   const handleRegisterStudent = async (e) => {
     e.preventDefault();
@@ -152,7 +170,9 @@ export default function AdminDashboardPage() {
         }),
       });
       setSessionResult(res);
+      setSelectedSessionId(res.session.id);
       refetchStats();
+      refetchSessions();
     } catch (err) {
       alert(`Session Creation Failed: ${err.message}`);
     } finally {
@@ -164,6 +184,8 @@ export default function AdminDashboardPage() {
   const contracts = statsData?.contracts || {};
   const students = studentsData?.students || [];
   const credentials = credentialsData?.credentials || [];
+  const sessions = sessionsData?.sessions || [];
+  const attendees = sessionAttendanceData?.attendees || [];
 
   const handleRevoke = async (certificate) => {
     const reason = window.prompt(`Revoke ${certificate.certificateId}? Enter a reason:`);
@@ -191,11 +213,13 @@ export default function AdminDashboardPage() {
       <div className="bg-[#121824]/90 border border-white/10 rounded-2xl p-6 shadow-2xl backdrop-blur-xl flex flex-wrap items-center justify-between gap-6">
         <div>
           <span className="text-xs font-bold tracking-widest text-emerald-400 uppercase block mb-1">
-            Institutional Admin Portal
+            {isAdmin ? "Institutional Admin Portal" : "Teacher Portal"}
           </span>
-          <h1 className="text-2xl font-bold text-white m-0">University Credential Management</h1>
+          <h1 className="text-2xl font-bold text-white m-0">{isAdmin ? "University Credential Management" : "Student & Attendance Management"}</h1>
           <p className="text-sm text-gray-400 mt-1 max-w-xl">
-            Register students, mint Soulbound NFT certificates, issue verified skill badges, create attendance sessions, and inspect live blockchain proofs.
+            {isAdmin
+              ? "Register students, mint Soulbound NFT certificates, issue verified skill badges, create attendance sessions, and inspect live blockchain proofs."
+              : "Register students, issue verified skill badges, create attendance sessions, and review their credential history."}
           </p>
         </div>
       </div>
@@ -221,11 +245,11 @@ export default function AdminDashboardPage() {
         <div className="flex items-center gap-2 border-b border-white/10 pb-4 mb-6 overflow-x-auto">
           {[
             { id: "roster", label: "Student Roster & Register", icon: "📋" },
-            { id: "certificate", label: "Issue NFT Certificate", icon: "🎓" },
+            ...(isAdmin ? [{ id: "certificate", label: "Issue NFT Certificate", icon: "🎓" }] : []),
             { id: "skill", label: "Issue Skill Badge", icon: "⚡" },
             { id: "attendance", label: "Attendance Session", icon: "⏱️" },
             { id: "history", label: "Credential History", icon: "🧾" },
-            { id: "blockchain", label: "Blockchain Contracts", icon: "⛓️" },
+            ...(isAdmin ? [{ id: "blockchain", label: "Blockchain Contracts", icon: "⛓️" }] : []),
           ].map((tab) => (
             <button
               key={tab.id}
@@ -330,7 +354,7 @@ export default function AdminDashboardPage() {
                       <span className="text-[11px] text-emerald-400 font-semibold">{st.rollNumber ? `Roll: ${st.rollNumber}` : "Registered Student"} • {st.branch || "CS"}</span>
                     </div>
                     <button
-                      onClick={() => setQrModal({ isOpen: true, title: `${st.name || "Student"} Verification QR`, url: `${window.location.origin}/verify/${st.walletAddress}` })}
+                      onClick={() => setQrModal({ isOpen: true, title: `${st.name || "Student"} Verification QR`, url: verificationUrl(publicAppOrigin, st.walletAddress) })}
                       className="bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer border-none"
                     >
                       QR Code
@@ -491,20 +515,27 @@ export default function AdminDashboardPage() {
 
         {/* TAB 4: ATTENDANCE SESSION */}
         {activeTab === "attendance" && (
+          <div className="space-y-8 max-w-4xl">
           <form onSubmit={handleCreateSession} className="space-y-4 max-w-2xl">
             <h3 className="text-base font-bold text-white m-0">Create Live Attendance Session</h3>
             <p className="text-xs text-gray-400">Students mark attendance by submitting signed challenge nonces verified on-chain.</p>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs text-gray-300 font-semibold mb-1">Session Title</label>
-                <input
-                  type="text"
-                  required
+                <label className="block text-xs text-gray-300 font-semibold mb-1">Subject</label>
+                <select
                   value={sessionTitle}
-                  onChange={(e) => setSessionTitle(e.target.value)}
+                  onChange={(e) => {
+                    const subject = subjectForTitle(e.target.value);
+                    setSessionTitle(e.target.value);
+                    if (subject) setCourseCode(subject.code);
+                  }}
                   className="w-full bg-black/50 border border-white/15 rounded-xl px-3.5 py-2.5 text-sm text-white"
-                />
+                >
+                  {SUBJECTS.map((subject) => (
+                    <option key={subject.code} value={subject.title}>{subject.title}</option>
+                  ))}
+                </select>
               </div>
 
               <div>
@@ -513,7 +544,8 @@ export default function AdminDashboardPage() {
                   type="text"
                   required
                   value={courseCode}
-                  onChange={(e) => setCourseCode(e.target.value)}
+                  readOnly
+                  aria-label="Selected subject course code"
                   className="w-full bg-black/50 border border-white/15 rounded-xl px-3.5 py-2.5 text-sm text-white"
                 />
               </div>
@@ -544,6 +576,63 @@ export default function AdminDashboardPage() {
               </div>
             )}
           </form>
+
+          <section className="border-t border-white/10 pt-6 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-bold text-white m-0">Session attendance register</h3>
+                <p className="text-xs text-gray-400 mt-1">See every student who has signed attendance for a session you created.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  refetchSessions();
+                  if (selectedSessionId) refetchSessionAttendance();
+                }}
+                className="bg-white/10 hover:bg-white/20 text-white font-semibold px-4 py-2 rounded-lg text-xs cursor-pointer border border-white/15"
+              >
+                Refresh register
+              </button>
+            </div>
+
+            <select
+              value={selectedSessionId}
+              onChange={(e) => setSelectedSessionId(e.target.value)}
+              className="w-full max-w-2xl bg-black/50 border border-white/15 rounded-xl px-3.5 py-2.5 text-sm text-white"
+            >
+              <option value="">Select a session</option>
+              {sessions.map((session) => (
+                <option key={session.id} value={session.id}>
+                  {session.title} ({session.courseCode}) — {new Date(session.startTime).toLocaleString()}
+                </option>
+              ))}
+            </select>
+
+            {sessionsLoading && <p className="text-xs text-gray-400">Loading sessions…</p>}
+            {selectedSessionId && attendanceLoading && <p className="text-xs text-gray-400">Loading attendance register…</p>}
+            {selectedSessionId && !attendanceLoading && (
+              <div className="overflow-x-auto border border-white/10 rounded-xl">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-white/5 text-gray-400 uppercase">
+                    <tr><th className="p-3">Student</th><th className="p-3">Roll number</th><th className="p-3">Branch</th><th className="p-3">Marked at</th><th className="p-3">Wallet</th></tr>
+                  </thead>
+                  <tbody>
+                    {attendees.map((attendee) => (
+                      <tr key={attendee.id} className="border-t border-white/10">
+                        <td className="p-3 font-semibold text-white">{attendee.name}</td>
+                        <td className="p-3 text-emerald-300">{attendee.rollNumber || "—"}</td>
+                        <td className="p-3 text-gray-300">{attendee.branch || "—"}</td>
+                        <td className="p-3 text-gray-300">{new Date(attendee.markedAt).toLocaleString()}</td>
+                        <td className="p-3 font-mono text-gray-400">{attendee.walletAddress.slice(0, 8)}…{attendee.walletAddress.slice(-6)}</td>
+                      </tr>
+                    ))}
+                    {attendees.length === 0 && <tr><td colSpan="5" className="p-8 text-center text-gray-400">No student has marked attendance for this session yet.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+          </div>
         )}
 
         {/* TAB 5: BLOCKCHAIN CONTRACTS */}

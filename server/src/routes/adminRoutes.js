@@ -6,6 +6,7 @@ import SkillRecord from "../models/SkillRecord.js";
 import AttendanceRecord from "../models/AttendanceRecord.js";
 import GradeRecord from "../models/GradeRecord.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
+import { SUBJECTS, findSubject } from "../utils/subjects.js";
 
 const router = Router();
 
@@ -38,7 +39,7 @@ router.get("/admin/credentials", requireAuth, requireRole("admin", "teacher"), a
   }
 });
 
-router.post("/admin/students", requireAuth, requireRole("admin"), async (req, res) => {
+router.post("/admin/students", requireAuth, requireRole("admin", "teacher"), async (req, res) => {
   try {
     const { walletAddress, name, rollNumber, branch, semester, email } = req.body;
     if (!walletAddress || !ethers.isAddress(walletAddress)) {
@@ -102,10 +103,16 @@ router.post("/admin/grades", requireAuth, requireRole("admin", "teacher"), async
     if (!Number.isFinite(Number(score)) || Number(score) < 0 || Number(score) > 100) {
       return res.status(400).json({ error: "Score must be between 0 and 100" });
     }
+    const subject = findSubject(courseName, courseCode);
+    if (!subject) {
+      return res.status(400).json({
+        error: `Subject must be one of: ${SUBJECTS.map((item) => item.title).join(", ")}`,
+      });
+    }
     const normalizedWallet = ethers.getAddress(walletAddress).toLowerCase();
     const record = await GradeRecord.findOneAndUpdate(
-      { walletAddress: normalizedWallet, courseCode: courseCode.trim().toUpperCase(), semester: String(semester).trim() },
-      { walletAddress: normalizedWallet, courseCode: courseCode.trim().toUpperCase(), courseName: courseName.trim(), semester: String(semester).trim(), score: Number(score), grade: grade.trim().toUpperCase(), issuedBy: req.user.id },
+      { walletAddress: normalizedWallet, courseCode: subject.code, semester: String(semester).trim() },
+      { walletAddress: normalizedWallet, courseCode: subject.code, courseName: subject.title, semester: String(semester).trim(), score: Number(score), grade: grade.trim().toUpperCase(), issuedBy: req.user.id },
       { new: true, upsert: true, setDefaultsOnInsert: true }
     );
     await User.updateOne({ walletAddress: normalizedWallet }, { $addToSet: { grades: record._id } });
@@ -115,7 +122,7 @@ router.post("/admin/grades", requireAuth, requireRole("admin", "teacher"), async
   }
 });
 
-router.get("/admin/stats", requireAuth, requireRole("admin"), async (_req, res) => {
+router.get("/admin/stats", requireAuth, requireRole("admin", "teacher"), async (_req, res) => {
   try {
     const [totalStudents, totalCertificates, revokedCertificates, totalSkills, totalAttendance] = await Promise.all([
       User.countDocuments({ role: "student" }),

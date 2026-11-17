@@ -29,6 +29,17 @@ export function resolveLoginRole(walletAddress, requestedRole) {
     return "recruiter";
   }
 
+  // Local development supports the role picker without configuration. Production always
+  // requires an allowlisted issuer wallet unless demo mode is explicitly enabled.
+  const allowDemoRoleSelection =
+    process.env.ALLOW_DEMO_ROLE_SELECTION === "true" ||
+    (process.env.NODE_ENV !== "production" && adminWallets.length === 0 && recruiterWallets.length === 0);
+  if (allowDemoRoleSelection) {
+    return ["student", "teacher", "admin", "recruiter"].includes(requestedRole)
+      ? requestedRole
+      : "student";
+  }
+
   if (requestedRole === "admin" || requestedRole === "recruiter") {
     return "student";
   }

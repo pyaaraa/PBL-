@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from "react-router-dom";
+import { useAuth } from "./state/AuthContext";
 import Layout from "./components/Layout";
 import { RequireAuth, RequireRole } from "./components/RequireAuth";
 import AddSkillPage from "./pages/AddSkillPage";
@@ -11,6 +12,14 @@ import PublicProfilePage from "./pages/PublicProfilePage";
 import RecruiterViewPage from "./pages/RecruiterViewPage";
 import VerificationPage from "./pages/VerificationPage";
 
+function RoleDashboard() {
+  const { user } = useAuth();
+  if (user?.role === "admin") return <Navigate to="/admin" replace />;
+  if (user?.role === "teacher") return <Navigate to="/teacher" replace />;
+  if (user?.role === "recruiter") return <Navigate to="/recruiter/search" replace />;
+  return <DashboardPage />;
+}
+
 export default function App() {
   return (
     <Layout>
@@ -22,7 +31,7 @@ export default function App() {
           path="/dashboard"
           element={
             <RequireAuth>
-              <DashboardPage />
+              <RoleDashboard />
             </RequireAuth>
           }
         />
@@ -30,16 +39,16 @@ export default function App() {
         <Route
           path="/attendance"
           element={
-            <RequireAuth>
+            <RequireRole roles={["student"]}>
               <AttendancePage />
-            </RequireAuth>
+            </RequireRole>
           }
         />
 
         <Route
           path="/admin"
           element={
-            <RequireRole roles={["admin", "teacher"]}>
+            <RequireRole roles={["admin"]}>
               <AdminDashboardPage />
             </RequireRole>
           }
@@ -50,6 +59,15 @@ export default function App() {
           element={
             <RequireRole roles={["admin"]}>
               <AdminIssueCertificatePage />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="/teacher"
+          element={
+            <RequireRole roles={["teacher"]}>
+              <AdminDashboardPage />
             </RequireRole>
           }
         />

@@ -46,9 +46,10 @@ export default function LoginCard({
       <div className="space-y-4 mb-6">
         <div>
           <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-2">Select Platform Role</label>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {[
               { id: "student", label: "Student", icon: "🎓" },
+              { id: "teacher", label: "Teacher", icon: "👩‍🏫" },
               { id: "admin", label: "Admin", icon: "🏛️" },
               { id: "recruiter", label: "Recruiter", icon: "💼" },
             ].map((r) => (

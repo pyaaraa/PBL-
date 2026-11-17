@@ -6,7 +6,7 @@ import CertificateRecord from "../src/models/CertificateRecord.js";
 import SkillRecord from "../src/models/SkillRecord.js";
 import GradeRecord from "../src/models/GradeRecord.js";
 import { uploadJsonToPinata } from "../src/utils/ipfs.js";
-import { buildCredentialContentHash, mintCertificateOnChain, mintSkillOnChain } from "../src/services/blockchainService.js";
+import { buildCredentialContentHash, getCertificateOnChainById, mintCertificateOnChain, mintSkillOnChain } from "../src/services/blockchainService.js";
 
 const ADMIN_WALLET = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266".toLowerCase();
 const STUDENT_WALLET = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8".toLowerCase();
@@ -26,15 +26,36 @@ export async function seedDemoData() {
   const certificateId = "DAUTH-2026-042-BTECH";
   let certificate = await CertificateRecord.findOne({ certificateId });
   if (!certificate) {
-    const metadata = await uploadJsonToPinata(certificateId, {
+    const existingOnChain = await getCertificateOnChainById(certificateId);
+    if (existingOnChain) {
+      certificate = await CertificateRecord.create({
+        walletAddress: existingOnChain.walletAddress,
+        certificateId,
+        degreeName: existingOnChain.degreeName,
+        stream: "Computer Science",
+        passingYear: 2026,
+        universityName: existingOnChain.universityName,
+        issueDate: existingOnChain.issueDate,
+        metadataCid: "recovered-on-chain",
+        metadataUri: existingOnChain.metadataUri,
+        tokenId: existingOnChain.tokenId,
+        txHash: "recovered-from-local-chain",
+        contentHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+        issuedBy: admin._id,
+        isValid: existingOnChain.isValid,
+      });
+      await User.updateOne({ _id: student._id }, { $addToSet: { certificates: certificate._id } });
+    } else {
+      const metadata = await uploadJsonToPinata(certificateId, {
       name: "Bachelor of Technology - DAuth Demo",
       description: "Demo academic credential for the DAuth local blockchain workflow.",
       external_url: `${process.env.CLIENT_URL || "http://localhost:5173"}/verify/${certificateId}`,
-    });
-    const contentHash = buildCredentialContentHash({ certificateId, walletAddress: STUDENT_WALLET, degreeName: "Bachelor of Technology in Computer Science", universityName: "DAuth University", stream: "Computer Science", passingYear: 2026, metadataCid: metadata.cid });
-    const minted = await mintCertificateOnChain({ walletAddress: STUDENT_WALLET, metadataUri: metadata.url, certificateId, contentHash, degreeName: "Bachelor of Technology in Computer Science", universityName: "DAuth University", issueDate: "2026-06-15" });
-    certificate = await CertificateRecord.create({ walletAddress: STUDENT_WALLET, certificateId, degreeName: "Bachelor of Technology in Computer Science", stream: "Computer Science", passingYear: 2026, universityName: "DAuth University", issueDate: new Date("2026-06-15"), metadataCid: metadata.cid, metadataUri: metadata.url, tokenId: minted.tokenId, txHash: minted.txHash, contentHash, issuedBy: admin._id });
-    await User.updateOne({ _id: student._id }, { $addToSet: { certificates: certificate._id } });
+      });
+      const contentHash = buildCredentialContentHash({ certificateId, walletAddress: STUDENT_WALLET, degreeName: "Bachelor of Technology in Computer Science", universityName: "DAuth University", stream: "Computer Science", passingYear: 2026, metadataCid: metadata.cid });
+      const minted = await mintCertificateOnChain({ walletAddress: STUDENT_WALLET, metadataUri: metadata.url, certificateId, contentHash, degreeName: "Bachelor of Technology in Computer Science", universityName: "DAuth University", issueDate: "2026-06-15" });
+      certificate = await CertificateRecord.create({ walletAddress: STUDENT_WALLET, certificateId, degreeName: "Bachelor of Technology in Computer Science", stream: "Computer Science", passingYear: 2026, universityName: "DAuth University", issueDate: new Date("2026-06-15"), metadataCid: metadata.cid, metadataUri: metadata.url, tokenId: minted.tokenId, txHash: minted.txHash, contentHash, issuedBy: admin._id });
+      await User.updateOne({ _id: student._id }, { $addToSet: { certificates: certificate._id } });
+    }
   }
 
   const skill = await SkillRecord.findOne({ walletAddress: STUDENT_WALLET, title: "Solidity & Smart Contract Development" });

@@ -11,8 +11,6 @@ export default function LoginPage() {
     return <Navigate to="/dashboard" replace />;
   }
 
-  const from = location.state?.from?.pathname || "/dashboard";
-
   return (
     <div className="page-grid">
       <section className="glass-card hero-card">
@@ -30,7 +28,18 @@ export default function LoginPage() {
         initialRole="student"
         title="Choose Role And Connect"
         description="Students manage attendance and credentials. Teachers manage sessions and skill proofs. Admins issue certificates and verify records."
-        onSuccess={() => navigate(from, { replace: true })}
+        onSuccess={(session) => navigate(
+          location.state?.from?.pathname || (
+            session.user.role === "admin"
+              ? "/admin"
+              : session.user.role === "teacher"
+                ? "/teacher"
+                : session.user.role === "recruiter"
+                  ? "/recruiter/search"
+                : "/dashboard"
+          ),
+          { replace: true }
+        )}
       />
     </div>
   );
